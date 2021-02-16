@@ -130,7 +130,10 @@ $(function() {
 								html = '<span style="color: red">'+ I18n.system_fail +'</span>';
 							} else if (data == 0) {
                                 html = '';
-							}
+							} else if (data == -1) {
+								// todo mhw
+                                html = '<span style="color: #5d71ff">'+ I18n.joblog_status_queue +'</span>';
+                            }
                             return html;
 						}
 					},

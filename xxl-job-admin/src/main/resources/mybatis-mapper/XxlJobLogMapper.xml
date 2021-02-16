@@ -8,7 +8,8 @@
 
 		<result column="job_group" property="jobGroup" />
 		<result column="job_id" property="jobId" />
-
+		<result column="weight" property="weight" />
+		<result column="lock_num" property="lockNum" />
 		<result column="executor_address" property="executorAddress" />
 		<result column="executor_handler" property="executorHandler" />
 	    <result column="executor_param" property="executorParam" />
@@ -30,6 +31,8 @@
 		t.id,
 		t.job_group,
 		t.job_id,
+		t.weight,
+		t.lock_num,
 		t.executor_address,
 		t.executor_handler,
 		t.executor_param,
@@ -60,15 +63,22 @@
 			<if test="triggerTimeEnd != null">
 				AND t.trigger_time <![CDATA[ <= ]]> #{triggerTimeEnd}
 			</if>
+			<!-- 1 运行成功-->
 			<if test="logStatus == 1" >
 				AND t.handle_code = 200
 			</if>
+			<!-- add by mhw-->
+			<if test="logStatus == -2" >
+				AND t.trigger_code = -1
+			</if>
+			<!-- 失败 modify trigger_code 0 to -1 by mhw-->
 			<if test="logStatus == 2" >
 				AND (
-					t.trigger_code NOT IN (0, 200) OR
+					t.trigger_code NOT IN (-1, 200) OR
 					t.handle_code NOT IN (0, 200)
 				)
 			</if>
+			<!-- 3 trigger_code==200 表示运行中-->
 			<if test="logStatus == 3" >
 				AND t.trigger_code = 200
 				AND t.handle_code = 0
@@ -77,7 +87,81 @@
 		ORDER BY t.trigger_time DESC
 		LIMIT #{offset}, #{pagesize}
 	</select>
-	
+
+	<select id="queryWaitLock" resultMap="XxlJobLog">
+		SELECT <include refid="Base_Column_List" />
+		FROM xxl_job_log AS t
+		<trim prefix="WHERE" prefixOverrides="AND | OR" >
+			<if test="jobId==0 and jobGroup gt 0">
+				AND t.job_group = #{jobGroup}
+			</if>
+			<if test="jobId gt 0">
+				AND t.job_id = #{jobId}
+			</if>
+			<if test="triggerTimeStart != null">
+				AND t.trigger_time <![CDATA[ >= ]]> #{triggerTimeStart}
+			</if>
+			<if test="triggerTimeEnd != null">
+				AND t.trigger_time <![CDATA[ <= ]]> #{triggerTimeEnd}
+			</if>
+			<!-- 1 运行成功-->
+			<if test="logStatus == 1" >
+				AND t.handle_code = 200
+			</if>
+			<!-- add by mhw-->
+			<if test="logStatus == -2" >
+				AND t.trigger_code = -1 AND lock_num = 0
+			</if>
+			<if test="logStatus == -3" >
+				AND t.trigger_code = -1 AND lock_num &gt; 0
+			</if>
+			<!-- 失败 modify trigger_code 0 to -1 by mhw-->
+			<if test="logStatus == 2" >
+				AND (
+				t.trigger_code NOT IN (-1, 200) OR
+				t.handle_code NOT IN (0, 200)
+				)
+			</if>
+			<!-- 3 trigger_code==200 表示运行中-->
+			<if test="logStatus == 3" >
+				AND t.trigger_code = 200
+				AND t.handle_code = 0
+			</if>
+		</trim>
+		ORDER BY t.trigger_time DESC
+		LIMIT #{offset}, #{pagesize}
+	</select>
+
+	<select id="queryByWeight" resultMap="XxlJobLog">
+		SELECT <include refid="Base_Column_List" />
+		FROM xxl_job_log AS t
+		<trim prefix="WHERE" prefixOverrides="AND | OR" >
+			<if test="weight &gt; 0">
+				AND t.weight &gt; 0
+			</if>
+			<if test="weight &lt; 0">
+				AND t.weight &lt; 0
+			</if>
+		</trim>
+		ORDER BY t.trigger_time DESC
+		LIMIT #{offset}, #{pagesize}
+	</select>
+
+	<select id="queryByLockNum" resultMap="XxlJobLog">
+		SELECT <include refid="Base_Column_List" />
+		FROM xxl_job_log AS t
+		<trim prefix="WHERE" prefixOverrides="AND | OR" >
+			<if test="lockNum &gt; 0">
+				AND t.lock_num &gt; 0
+			</if>
+			<if test="lockNum &lt; 0">
+				AND t.lock_num &lt; 0
+			</if>
+		</trim>
+		ORDER BY t.trigger_time DESC
+		LIMIT #{offset}, #{pagesize}
+	</select>
+
 	<select id="pageListCount" resultType="int">
 		SELECT count(1)
 		FROM xxl_job_log AS t
@@ -97,9 +181,13 @@
 			<if test="logStatus == 1" >
 				AND t.handle_code = 200
 			</if>
+			<!-- add by mhw-->
+			<if test="logStatus == -2" >
+				AND t.trigger_code = -1
+			</if>
 			<if test="logStatus == 2" >
 				AND (
-					t.trigger_code NOT IN (0, 200) OR
+					t.trigger_code NOT IN (-1, 200) OR
 					t.handle_code NOT IN (0, 200)
 				)
 			</if>
@@ -123,12 +211,14 @@
 			`job_id`,
 			`trigger_time`,
 			`trigger_code`,
+			`weight`,
 			`handle_code`
 		) VALUES (
 			#{jobGroup},
 			#{jobId},
 			#{triggerTime},
 			#{triggerCode},
+			#{weight},
 			#{handleCode}
 		);
 		<!--<selectKey resultType="java.lang.Integer" order="AFTER" keyProperty="id">
@@ -142,6 +232,8 @@
 			`trigger_time`= #{triggerTime},
 			`trigger_code`= #{triggerCode},
 			`trigger_msg`= #{triggerMsg},
+			`weight`= #{weight},
+			`lock_num`= #{lockNum},
 			`executor_address`= #{executorAddress},
 			`executor_handler`=#{executorHandler},
 			`executor_param`= #{executorParam},
@@ -179,7 +271,7 @@
     <select id="findLogReport" resultType="java.util.Map" >
 		SELECT
 			COUNT(handle_code) triggerDayCount,
-			SUM(CASE WHEN (trigger_code in (0, 200) and handle_code = 0) then 1 else 0 end) as triggerDayCountRunning,
+			SUM(CASE WHEN (trigger_code in (-1, 200) and handle_code = 0) then 1 else 0 end) as triggerDayCountRunning,
 			SUM(CASE WHEN handle_code = 200 then 1 else 0 end) as triggerDayCountSuc
 		FROM xxl_job_log
 		WHERE trigger_time BETWEEN #{from} and #{to}
@@ -230,7 +322,7 @@
 	<select id="findFailJobLogIds" resultType="long" >
 		SELECT id FROM `xxl_job_log`
 		WHERE !(
-			(trigger_code in (0, 200) and handle_code = 0)
+			(trigger_code in (-1, 200) and handle_code = 0)
 			OR
 			(handle_code = 200)
 		)

@@ -90,6 +90,7 @@ $(function() {
 	                },
 	                { "data": 'author', "visible" : true, "width":'10%'},
 	                { "data": 'alarmEmail', "visible" : false},
+					{ "data": 'weight', "visible" : false},
 	                {
 	                	"data": 'triggerStatus',
 						"width":'10%',
@@ -541,6 +542,7 @@ $(function() {
 		$('#updateModal .form select[name=jobGroup] option[value='+ row.jobGroup +']').prop('selected', true);
 		$("#updateModal .form input[name='jobDesc']").val( row.jobDesc );
 		$("#updateModal .form input[name='author']").val( row.author );
+        $("#updateModal .form input[name='weight']").val( row.weight );
 		$("#updateModal .form input[name='alarmEmail']").val( row.alarmEmail );
 
 		// fill trigger
@@ -696,6 +698,7 @@ $(function() {
 		$('#addModal .form select[name=jobGroup] option[value='+ row.jobGroup +']').prop('selected', true);
 		$("#addModal .form input[name='jobDesc']").val( row.jobDesc );
 		$("#addModal .form input[name='author']").val( row.author );
+        $("#addModal .form input[name='weight']").val( row.weight );
 		$("#addModal .form input[name='alarmEmail']").val( row.alarmEmail );
 
 		// fill trigger

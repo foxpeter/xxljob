@@ -3,14 +3,17 @@ package com.xxl.job.admin.core.thread;
 import com.xxl.job.admin.core.conf.XxlJobAdminConfig;
 import com.xxl.job.admin.core.cron.CronExpression;
 import com.xxl.job.admin.core.model.XxlJobInfo;
+import com.xxl.job.admin.core.model.XxlJobLog;
 import com.xxl.job.admin.core.scheduler.MisfireStrategyEnum;
 import com.xxl.job.admin.core.scheduler.ScheduleTypeEnum;
 import com.xxl.job.admin.core.trigger.TriggerTypeEnum;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.CollectionUtils;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,8 +34,13 @@ public class JobScheduleHelper {
 
     private Thread scheduleThread;
     private Thread ringThread;
+    // 排队执行线程
+    private Thread queueThread;
+    private Thread queueRingThread;
     private volatile boolean scheduleThreadToStop = false;
     private volatile boolean ringThreadToStop = false;
+    private volatile boolean queueThreadToStop = false;
+    private volatile boolean queueRingThreadToStop = false;
     private volatile static Map<Integer, List<Integer>> ringData = new ConcurrentHashMap<>();
 
     public void start(){
@@ -267,7 +275,252 @@ public class JobScheduleHelper {
         ringThread.setDaemon(true);
         ringThread.setName("xxl-job, admin JobScheduleHelper#ringThread");
         ringThread.start();
+
+
+        // queue thread
+        queueThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+
+                while (!queueThreadToStop) {
+
+                    // align second  这里是为了对齐整秒，尽量保持在每一秒000执行
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(1000 - System.currentTimeMillis() % 1000);
+                    } catch (InterruptedException e) {
+                        if (!queueThreadToStop) {
+                            logger.error(e.getMessage(), e);
+                        }
+                    }
+
+                    // Scan Job
+                    long start = System.currentTimeMillis();
+
+                    Connection conn = null;
+                    Boolean connAutoCommit = null;
+                    PreparedStatement preparedStatement = null;
+                    PreparedStatement updateLockStatement = null;
+                    PreparedStatement updateLockTableStatement = null;
+                    boolean preReadSuc = true;
+
+                    try {
+                        // 获取待执行任务
+                        conn = XxlJobAdminConfig.getAdminConfig().getDataSource().getConnection();
+                        connAutoCommit = conn.getAutoCommit();
+                        conn.setAutoCommit(false);
+
+                        preparedStatement = conn.prepareStatement(  "select lock_num from xxl_job_lock where lock_name = 'queue_lock' for update" );
+                        PreparedStatement updateStatement = conn.prepareStatement("UPDATE `xxl_job_lock` SET lock_num = ? WHERE lock_name='queue_lock' AND lock_num = ?");
+                        // 先拿锁
+                        ResultSet resultSet = preparedStatement.executeQuery();
+                        int originLockNum = 0;
+                        int lockNum = 0;
+                        if(resultSet != null && resultSet.next()) {
+                            lockNum = resultSet.getInt(1);
+                            originLockNum = lockNum;
+                        }
+
+                        // 获取待还锁和等待锁待任务
+
+
+                        // 待申请锁待任务 weight > 0
+                        List<XxlJobLog> applyLocklist = XxlJobAdminConfig.getAdminConfig().getXxlJobLogDao().queryWaitLock(0, 50, -1, -1, null, null, -2);
+
+                        // 锁分配
+                        List<Long> applyLockJobId = new ArrayList<>();
+
+                        // 待还锁的任务 weight < 0
+                        List<XxlJobLog> returnLockList = XxlJobAdminConfig.getAdminConfig().getXxlJobLogDao().queryByLockNum(0,20,-1);
+
+
+                        if(!CollectionUtils.isEmpty(returnLockList)) {
+                            for(XxlJobLog r : returnLockList) {
+                                lockNum = lockNum + (r.getLockNum() * -1);
+                                applyLockJobId.add(r.getId());
+                            }
+                        }
+
+
+                        if(!CollectionUtils.isEmpty(applyLocklist)) {
+                            for (XxlJobLog xxlJobLog : applyLocklist) {
+                                if (xxlJobLog.getWeight() < 1) {
+                                    continue;
+                                }
+                                // 可用锁不足
+                                if (xxlJobLog.getWeight() > lockNum) {
+                                    break;
+                                }
+                                lockNum = lockNum - xxlJobLog.getWeight();
+                                applyLockJobId.add(xxlJobLog.getId());
+                            }
+                        }
+
+                        // 更新待申请锁状态
+                        if(!CollectionUtils.isEmpty(applyLockJobId)) {
+                            // update xxx  set lock_num = lock_num + weight where id in (?,?)
+                            String updateLockNumSql = createUpdateLockNumSql(applyLockJobId);
+                            if(null == updateLockNumSql) {
+                                logger.error("updateLockNumSql is null,break!");
+                                break;
+                            }
+                            updateLockStatement = conn.prepareStatement(updateLockNumSql);
+                            updateLockStatement.execute();
+                        }
+
+
+
+                        // lockNum如果跟原来的值 则需要更新
+                        if(lockNum != originLockNum) {
+                            String update = "update xxl_job_lock set lock_num = "+ lockNum +" WHERE lock_name='queue_lock' AND lock_num = " + originLockNum;
+                            updateLockTableStatement = conn.prepareStatement(update);
+                            updateLockTableStatement.execute();
+                        }
+
+                    } catch (Exception e) {
+                        if (!queueThreadToStop) {
+                            logger.error(">>>>>>>>>>> xxl-job, JobScheduleHelper#ringThread error:{}", e);
+                        }
+                    } finally {
+
+                        // 事务提交
+                        // commit
+                        if (conn != null) {
+                            try {
+                                conn.commit();
+                            } catch (SQLException e) {
+                                if (!queueThreadToStop) {
+                                    logger.error(e.getMessage(), e);
+                                }
+                            }
+                            try {
+                                conn.setAutoCommit(connAutoCommit);
+                            } catch (SQLException e) {
+                                if (!queueThreadToStop) {
+                                    logger.error(e.getMessage(), e);
+                                }
+                            }
+                            try {
+                                conn.close();
+                            } catch (SQLException e) {
+                                if (!queueThreadToStop) {
+                                    logger.error(e.getMessage(), e);
+                                }
+                            }
+                        }
+
+                        // close PreparedStatement
+                        if (null != preparedStatement) {
+                            try {
+                                preparedStatement.close();
+                            } catch (SQLException e) {
+                                if (!queueThreadToStop) {
+                                    logger.error(e.getMessage(), e);
+                                }
+                            }
+                        }
+
+                        if (null != updateLockStatement) {
+                            try {
+                                updateLockStatement.close();
+                            } catch (SQLException e) {
+                                if (!queueThreadToStop) {
+                                    logger.error(e.getMessage(), e);
+                                }
+                            }
+                        }
+
+                        if (null != updateLockTableStatement) {
+                            try {
+                                updateLockTableStatement.close();
+                            } catch (SQLException e) {
+                                if (!queueThreadToStop) {
+                                    logger.error(e.getMessage(), e);
+                                }
+                            }
+                        }
+                    }
+                    long cost = System.currentTimeMillis()-start;
+
+
+                    // Wait seconds, align second
+                    if (cost < 1000) {  // scan-overtime, not wait
+                        try {
+                            // pre-read period: success > scan each second; fail > skip this period;
+                            TimeUnit.MILLISECONDS.sleep((preReadSuc?1000:PRE_READ_MS) - System.currentTimeMillis()%1000);
+                        } catch (InterruptedException e) {
+                            if (!queueThreadToStop) {
+                                logger.error(e.getMessage(), e);
+                            }
+                        }
+                    }
+                }
+                logger.info(">>>>>>>>>>> xxl-job, JobScheduleHelper#queueThread stop");
+            }
+        });
+        queueThread.setDaemon(true);
+        queueThread.setName("xxl-job, admin JobScheduleHelper#queueThread");
+        queueThread.start();
+
+
+        // ring thread
+        queueRingThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+
+                while (!queueRingThreadToStop) {
+
+                    // align second
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(1000 - System.currentTimeMillis() % 1000);
+                    } catch (InterruptedException e) {
+                        if (!queueRingThreadToStop) {
+                            logger.error(e.getMessage(), e);
+                        }
+                    }
+
+                    try {
+                        List<XxlJobLog> applyLocklist = XxlJobAdminConfig.getAdminConfig().getXxlJobLogDao().queryWaitLock(0, 50, -1, -1, null, null, -3);
+
+                        if (!CollectionUtils.isEmpty(applyLocklist)) {
+                            // do trigger
+                            for (XxlJobLog xxlJobLog : applyLocklist) {
+                                // do trigger
+                                JobTriggerPoolHelper.trigger(xxlJobLog, TriggerTypeEnum.QUEUE, -1, null, null, null);
+                            }
+                        }
+                    } catch (Exception e) {
+                        if (!queueRingThreadToStop) {
+                            logger.error(">>>>>>>>>>> xxl-job, JobScheduleHelper#ringThread error:{}", e);
+                        }
+                    }
+                }
+                logger.info(">>>>>>>>>>> xxl-job, JobScheduleHelper#ringThread stop");
+            }
+        });
+        queueRingThread.setDaemon(true);
+        queueRingThread.setName("xxl-job, admin JobScheduleHelper#ringThread");
+        queueRingThread.start();
     }
+
+    private static String createUpdateLockNumSql(List<Long> applyLockJobId) {
+        String result = null;
+        if(CollectionUtils.isEmpty(applyLockJobId)) {
+            return result;
+        }
+        String format = "update xxl_job_log set lock_num = lock_num + weight where id in (%s);";
+        StringBuilder sb = new StringBuilder();
+        try {
+            for(Long l : applyLockJobId) {
+                sb.append(l).append(",");
+            }
+            result = String.format(format,sb.deleteCharAt(sb.length()-1).toString());
+        } catch (Exception e) {
+            logger.error("createUpdateLockNumSql error! ids:{}", applyLockJobId, e);
+        }
+        return result;
+    }
+
+
 
     private void refreshNextValidTime(XxlJobInfo jobInfo, Date fromTime) throws Exception {
         Date nextValidTime = generateNextValidTime(jobInfo, fromTime);
@@ -351,6 +604,7 @@ public class JobScheduleHelper {
         }
 
         logger.info(">>>>>>>>>>> xxl-job, JobScheduleHelper stop");
+
     }
 
 
@@ -364,6 +618,15 @@ public class JobScheduleHelper {
             return new Date(fromTime.getTime() + Integer.valueOf(jobInfo.getScheduleConf())*1000 );
         }
         return null;
+    }
+
+    // ----test----
+    public static void testcreateUpdateLockNumSql() {
+        List<Long> list = new ArrayList<>();
+        list.add(1L);
+        list.add(2L);
+
+        System.out.println(createUpdateLockNumSql(list));
     }
 
 }

@@ -34,7 +34,8 @@ public class XxlJobCompleter {
         if (xxlJobLog.getHandleMsg().length() > 15000) {
             xxlJobLog.setHandleMsg( xxlJobLog.getHandleMsg().substring(0, 15000) );
         }
-
+        XxlJobLog load = XxlJobAdminConfig.getAdminConfig().getXxlJobLogDao().load(xxlJobLog.getId());
+        xxlJobLog.setLockNum(load.getLockNum() * -1);
         // fresh handle
         return XxlJobAdminConfig.getAdminConfig().getXxlJobLogDao().updateHandleInfo(xxlJobLog);
     }

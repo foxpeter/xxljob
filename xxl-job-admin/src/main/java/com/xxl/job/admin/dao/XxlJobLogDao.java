@@ -59,4 +59,19 @@ public interface XxlJobLogDao {
 
 	public List<Long> findLostJobIds(@Param("losedTime") Date losedTime);
 
+	public List<XxlJobLog> queryByWeight(@Param("offset") int offset,
+									@Param("pagesize") int pagesize,
+									@Param("weight") int weight);
+
+	public List<XxlJobLog> queryByLockNum(@Param("offset") int offset,
+										 @Param("pagesize") int pagesize,
+										 @Param("lockNum") int lockNum);
+
+	public List<XxlJobLog> queryWaitLock(@Param("offset") int offset,
+									@Param("pagesize") int pagesize,
+									@Param("jobGroup") int jobGroup,
+									@Param("jobId") int jobId,
+									@Param("triggerTimeStart") Date triggerTimeStart,
+									@Param("triggerTimeEnd") Date triggerTimeEnd,
+									@Param("logStatus") int logStatus);
 }

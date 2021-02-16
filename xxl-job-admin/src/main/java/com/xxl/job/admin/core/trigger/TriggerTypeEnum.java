@@ -12,6 +12,7 @@ public enum TriggerTypeEnum {
     MANUAL(I18nUtil.getString("jobconf_trigger_type_manual")),
     CRON(I18nUtil.getString("jobconf_trigger_type_cron")),
     RETRY(I18nUtil.getString("jobconf_trigger_type_retry")),
+    QUEUE(I18nUtil.getString("jobconf_trigger_type_queue")),
     PARENT(I18nUtil.getString("jobconf_trigger_type_parent")),
     API(I18nUtil.getString("jobconf_trigger_type_api")),
     MISFIRE(I18nUtil.getString("jobconf_trigger_type_misfire"));

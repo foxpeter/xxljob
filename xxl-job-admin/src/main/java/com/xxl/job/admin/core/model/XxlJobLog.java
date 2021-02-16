@@ -33,7 +33,8 @@ public class XxlJobLog {
 
 	// alarm info
 	private int alarmStatus;
-
+	private int weight;
+	private int lockNum;
 	public long getId() {
 		return id;
 	}
@@ -154,4 +155,19 @@ public class XxlJobLog {
 		this.alarmStatus = alarmStatus;
 	}
 
+    public int getWeight() {
+        return weight;
+    }
+
+    public void setWeight(int weight) {
+        this.weight = weight;
+    }
+
+	public int getLockNum() {
+		return lockNum;
+	}
+
+	public void setLockNum(int lockNum) {
+		this.lockNum = lockNum;
+	}
 }

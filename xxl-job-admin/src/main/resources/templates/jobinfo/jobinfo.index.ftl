@@ -86,6 +86,7 @@
 					                  	<th name="addTime" >addTime</th>
 					                  	<th name="updateTime" >updateTime</th>
 					                  	<th name="author" >${I18n.jobinfo_field_author}</th>
+                                        <th name="weight" >${I18n.jobinfo_field_weight}</th>
 					                  	<th name="alarmEmail" >${I18n.jobinfo_field_alarmemail}</th>
 					                  	<th name="triggerStatus" >${I18n.system_status}</th>
 					                  	<th>${I18n.system_opt}</th>
@@ -134,6 +135,11 @@
                         <div class="col-sm-4"><input type="text" class="form-control" name="author" placeholder="${I18n.system_please_input}${I18n.jobinfo_field_author}" maxlength="50" ></div>
                         <label for="lastname" class="col-sm-2 control-label">${I18n.jobinfo_field_alarmemail}<font color="black">*</font></label>
                         <div class="col-sm-4"><input type="text" class="form-control" name="alarmEmail" placeholder="${I18n.jobinfo_field_alarmemail_placeholder}" maxlength="100" ></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="lastname" class="col-sm-2 control-label">${I18n.jobinfo_field_weight}<font color="black">*</font></label>
+                        <div class="col-sm-4"><input type="text" class="form-control" name="weight" placeholder="${I18n.jobinfo_field_weight}" maxlength="50" value="0"></div>
                     </div>
 
                     <br>
@@ -379,6 +385,10 @@ exit 0
                         <div class="col-sm-4"><input type="text" class="form-control" name="author" placeholder="${I18n.system_please_input}${I18n.jobinfo_field_author}" maxlength="50" ></div>
                         <label for="lastname" class="col-sm-2 control-label">${I18n.jobinfo_field_alarmemail}<font color="black">*</font></label>
                         <div class="col-sm-4"><input type="text" class="form-control" name="alarmEmail" placeholder="${I18n.jobinfo_field_alarmemail_placeholder}" maxlength="100" ></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="lastname" class="col-sm-2 control-label">${I18n.jobinfo_field_weight}<font color="black">*</font></label>
+                        <div class="col-sm-4"><input type="text" class="form-control" name="weight" placeholder="${I18n.jobinfo_field_weight}" maxlength="50"></div>
                     </div>
 
                     <br>

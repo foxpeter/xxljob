@@ -1,6 +1,7 @@
 package com.xxl.job.admin.core.thread;
 
 import com.xxl.job.admin.core.conf.XxlJobAdminConfig;
+import com.xxl.job.admin.core.model.XxlJobLog;
 import com.xxl.job.admin.core.trigger.TriggerTypeEnum;
 import com.xxl.job.admin.core.trigger.XxlJobTrigger;
 import org.slf4j.Logger;
@@ -120,6 +121,59 @@ public class JobTriggerPoolHelper {
     }
 
 
+    /**
+     * add trigger
+     */
+    public void addTrigger(final XxlJobLog jobLog,
+                           final TriggerTypeEnum triggerType,
+                           final int failRetryCount,
+                           final String executorShardingParam,
+                           final String executorParam,
+                           final String addressList) {
+
+        // choose thread pool
+        ThreadPoolExecutor triggerPool_ = fastTriggerPool;
+        AtomicInteger jobTimeoutCount = jobTimeoutCountMap.get(jobLog.getJobId());
+        if (jobTimeoutCount!=null && jobTimeoutCount.get() > 10) {      // job-timeout 10 times in 1 min
+            triggerPool_ = slowTriggerPool;
+        }
+
+        // trigger
+        triggerPool_.execute(new Runnable() {
+            @Override
+            public void run() {
+
+                long start = System.currentTimeMillis();
+
+                try {
+                    // do trigger
+                    XxlJobTrigger.trigger(jobLog, triggerType, failRetryCount, executorShardingParam, executorParam, addressList);
+                } catch (Exception e) {
+                    logger.error(e.getMessage(), e);
+                } finally {
+
+                    // check timeout-count-map
+                    long minTim_now = System.currentTimeMillis()/60000;
+                    if (minTim != minTim_now) {
+                        minTim = minTim_now;
+                        jobTimeoutCountMap.clear();
+                    }
+
+                    // incr timeout-count-map
+                    long cost = System.currentTimeMillis()-start;
+                    if (cost > 500) {       // ob-timeout threshold 500ms
+                        AtomicInteger timeoutCount = jobTimeoutCountMap.putIfAbsent(jobLog.getJobId(), new AtomicInteger(1));
+                        if (timeoutCount != null) {
+                            timeoutCount.incrementAndGet();
+                        }
+                    }
+
+                }
+
+            }
+        });
+    }
+
 
     // ---------------------- helper ----------------------
 
@@ -147,4 +201,7 @@ public class JobTriggerPoolHelper {
         helper.addTrigger(jobId, triggerType, failRetryCount, executorShardingParam, executorParam, addressList);
     }
 
+    public static void trigger(XxlJobLog jobLog, TriggerTypeEnum triggerType, int failRetryCount, String executorShardingParam, String executorParam, String addressList) {
+        helper.addTrigger(jobLog, triggerType, failRetryCount, executorShardingParam, executorParam, addressList);
+    }
 }
